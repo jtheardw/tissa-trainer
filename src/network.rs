@@ -1,10 +1,36 @@
 use std::fs::File;
+use std::io::BufWriter;
 use std::io::prelude::*;
 
 use crate::cost::*;
+use crate::dataset::*;
 use crate::functions::*;
 use crate::gradient::*;
 use crate::matrix::*;
+
+
+fn input_number(piece: i32, white: bool, rank: i32, file: i32) -> i16 {
+    let piece_num = if white { piece } else { 6 + piece };
+    let idx = rank * 8 + file;
+    let num = (piece_num * 64 + idx) as i16;
+    if num > 769 {
+        panic!("num too big {}, {} {} {} {}", num, piece, white, rank, file);
+    }
+    return num;
+}
+
+fn flip_input(input: i16) -> i16 {
+    // need to flip "color" and "rank"
+    // flip square
+    let idx = (input % 64) ^ 56;
+    let orig_piece_num = input / 64;
+    let piece_type = orig_piece_num % 6;
+    // >= 6 meant it was black, so we need to undo that and vice versa
+    let piece_color = orig_piece_num >= 6;
+    let piece_num = if piece_color {piece_type} else {6 + piece_type};
+
+    return piece_num * 64 + idx;
+}
 
 pub struct NetworkTopology {
     pub inputs: u32,
@@ -17,10 +43,12 @@ pub struct Network {
     pub topology: NetworkTopology,
     pub weights: Vec<Matrix>,
     pub biases: Vec<Matrix>,
+    pub sums: Matrix,
     pub activations: Vec<Matrix>,
     pub errors: Vec<Matrix>,
     pub weight_gradients: Vec<Gradients>,
-    pub bias_gradients: Vec<Gradients>
+    pub bias_gradients: Vec<Gradients>,
+    flipped: bool
 }
 
 impl NetworkTopology {
@@ -77,9 +105,11 @@ impl Network {
             weights: weights,
             biases: biases,
             activations: activations,
+            sums: Matrix::new_random_column(topology.inputs as usize, topology.inputs as f32),
             errors: errors,
             weight_gradients: weight_gradients,
-            bias_gradients: bias_gradients
+            bias_gradients: bias_gradients,
+            flipped: false
         }
     }
 
@@ -124,9 +154,56 @@ impl Network {
             biases: biases,
             activations: activations,
             errors: errors,
+            sums: self.sums.copy(),
             weight_gradients: weight_gradients,
-            bias_gradients: bias_gradients
+            bias_gradients: bias_gradients,
+            flipped: self.flipped
         }
+    }
+
+    pub fn save_image(&self, file: &str) -> std::io::Result<()> {
+        let ss = 8; // supersampling
+        let border = [0, 0, 0];
+        let width  = (12*8)*ss + 11;
+        let neurons = 256;
+        let height = 8*neurons*ss + 127;
+        let mut w = BufWriter::new(File::create(format!("{}.ppm", file))?);
+        writeln!(&mut w, "P6")?;
+        writeln!(&mut w, "{} {}", width, height)?;
+        writeln!(&mut w, "255")?;
+
+        // for n in 0..128 {
+        for n in 0..neurons {
+            if n != 0 { for _ in 0..width { w.write(&border)?; } }
+            let mut upper = 0.0;
+            let mut lower = 0.0;
+            for i in 0..768 {
+                upper = self.weights[0].get(n, i).max(upper);
+                lower = self.weights[0].get(n, i).min(lower);
+            }
+            let scale = upper.max(-lower);
+            for rank in (0..8).rev() {
+                for _ in 0..ss {
+                    for side in [true, false] {
+                        for piece in (0..6).rev() {
+                            if piece != 5 || !side { w.write(&border)?; }
+                            for file in 0..8 {
+                                // let x : usize = piece*64 + rank*8 + file;
+                                let inp = input_number(piece, side, rank, file);
+                                let normed = ((self.weights[0].get(n, inp as usize) / scale) + 1.0) / 2.0;
+                                // let normed = ((self.w1[n][x] / scale) + 1.0) / 2.0;
+                                debug_assert!(1.0 >= normed && normed >= 0.0, "out of range");
+                                let r = (normed * 255.0).round() as u8;
+                                let g = (normed * 255.0).round() as u8;
+                                let b = (32.0 + normed * 191.0).round() as u8;
+                                for _ in 0..ss { w.write(&[r, g, b])?; }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return Ok(());
     }
 
     // From zahak-trainer:
@@ -223,10 +300,12 @@ impl Network {
         return Ok(network);
     }
 
-    pub fn predict(&mut self, input: &Vec<i16>) -> f32 {
+    pub fn predict(&mut self, input: &[i16; 33], len: u8) -> f32 {
         // hidden layers are done using relu's.  The output
         // layer will be a sigmoid
         self.activations[0].clear();
+        self.sums.clear();
+        self.flipped = true;
         let output = &mut self.activations[0];
         let weight = &mut self.weights[0];
         let bias = &mut self.biases[0];
@@ -236,17 +315,44 @@ impl Network {
         // can be non-zero at any given time. we don't have to do the whole
         // song-and-dance of the full matrix multiplication.
         let output_size = output.size();
-        for i in 0..input.len() {
+        self.flipped = !(input[(len - 1) as usize] == 768);
+
+        for i in 0..len {
             // the "inputs" here are actually the indexes of the features that are non-zero
+            if input[i as usize] == 768 {
+                continue;
+            }
+            let inp = input[i as usize];
+            let flipped_inp = flip_input(inp);
+            let neurons = output_size / 2;
             for j in 0..output_size {
-                self.activations[0].data[j] += weight.get(j, input[i] as usize);
+                let out_idx = j % (output_size / 2);
+                let weight_to_get = if j >= output_size / 2 {
+                    // we need to "flip"
+                    flipped_inp as usize
+                } else {
+                    inp as usize
+                };
+                // println!("inp {} neuron {} weight_j {} weight_i {}", input[i as usize], j, weight_to_get.0, weight_to_get.1);
+                if !self.flipped {
+                    self.activations[0].data[j] += weight.get(out_idx, weight_to_get)
+                } else {
+                    // self.activations[0].data[j ^ 128] += weight.get(out_idx, weight_to_get);
+                    self.activations[0].data[j ^ neurons] += weight.get(out_idx, weight_to_get);
+                }
+                // self.sums.data[j] += weight.get(out_idx, weight_to_get);
             }
         }
 
         // we've gathered up the total sums (besides the bias).
         // now we need to add in the bias and run it through our relu
         for j in 0..output_size {
-            self.activations[0].data[j] = relu(self.activations[0].data[j] + bias.data[j]);
+            self.activations[0].data[j] = relu(self.activations[0].data[j] + bias.data[j % (output_size / 2)]);
+            // if !self.flipped {
+            //     self.activations[0].data[j] = self.sums.data[j];
+            // } else {
+            //     self.activations[0].data[j ^ 128] = self.sums.data[j];
+            // }
         }
 
         let mut activation_fn: fn(f32) -> f32 = relu;
@@ -266,11 +372,7 @@ impl Network {
                     self.activations[layer].data[i] += self.activations[layer-1].data[j] * self.weights[layer].get(i, j);
                 }
 
-                // if layer != self.activations.len() - 1 {
-                    self.activations[layer].data[i] = activation_fn(self.activations[layer].data[i] + self.biases[layer].data[i]);
-                // } else {
-                //     self.activations[layer].data[i] = self.activations[layer].data[i] + self.biases[layer].data[i];
-                // }
+                self.activations[layer].data[i] = activation_fn(self.activations[layer].data[i] + self.biases[layer].data[i]);
             }
         }
 
@@ -291,17 +393,28 @@ impl Network {
         }
     }
 
-    pub fn update_gradients(&mut self, input: &Vec<i16>) {
+    pub fn update_gradients(&mut self, input: &[i16; 33], len: u8) {
 
         // the first layer is handled sparesly, as described in "predict"
-        for i in 0..input.len() {
-            for j in 0..self.errors[0].size() {
-                self.weight_gradients[0].update(j, input[i] as usize, self.errors[0].data[j]);
+        for i in 0..len {
+            let inp = input[i as usize];
+            let output_size = self.errors[0].size();
+            if inp == 768 { continue; }
+            let flipped_inp = flip_input(inp);
+            for j in 0..output_size {
+                let out_idx = j % (output_size / 2);
+                let weight_to_get = if self.flipped ^ (j >= output_size / 2) {
+                    flipped_inp as usize
+                } else {
+                    inp as usize
+                };
+                // println!("flipped {} inp {} neuron {} weight_j {} weight_i {}", self.flipped, input[i as usize], j, weight_to_get.0, weight_to_get.1);
+                self.weight_gradients[0].update(out_idx, weight_to_get, self.errors[0].data[j]);
             }
         }
 
         for i in 0..self.errors[0].size() {
-            self.bias_gradients[0].data[i].update(self.errors[0].data[i]);
+            self.bias_gradients[0].data[i % (self.errors[0].size() / 2)].update(self.errors[0].data[i]);
         }
 
         for layer in 1..self.activations.len() {
@@ -316,10 +429,10 @@ impl Network {
         }
     }
 
-    pub fn train(&mut self, input: &Vec<i16>, eval_target: f32, result_target: f32) -> f32 {
+    pub fn train(&mut self, input: &[i16; 33], len: u8, eval_target: f32, result_target: f32) -> f32 {
 
         // First we attempt to get a result from the current net
-        let last_output = self.predict(input);
+        let last_output = self.predict(input, len);
 
         // Then we need to figure out how effective we were
         let output_gradient = cost_gradient(last_output, eval_target, result_target) * sigmoid_to_sigmoid_prime(last_output);
@@ -328,7 +441,7 @@ impl Network {
         self.find_errors(output_gradient);
 
         // determine updates
-        self.update_gradients(input);
+        self.update_gradients(input, len);
 
         let vc = validation_cost(last_output, eval_target, result_target);
         return vc;

@@ -15,6 +15,7 @@ pub struct Gradients {
 
 const BETA_1: f32 = 0.9;
 const BETA_2: f32 = 0.999;
+// const LEARNING_RATE: f32 = 0.01;
 const LEARNING_RATE: f32 = 0.01;
 
 impl Gradient {

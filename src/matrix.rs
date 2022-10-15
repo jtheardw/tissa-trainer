@@ -52,10 +52,10 @@ impl Matrix {
 
 fn random_array(len: usize, range_factor: f32) -> Vec<f32> {
     let max = 2.0 / (range_factor as f64).sqrt();
-    let dist = Uniform::from(0.0..max);
     let mut rng = rand::thread_rng();
 
     let mut data: Vec<f32> = vec![0.0; len];
+    let mut dist = Uniform::from(-max..max);
     for i in 0..len {
         data[i] = dist.sample(&mut rng) as f32;
     }

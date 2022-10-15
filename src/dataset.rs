@@ -1,3 +1,4 @@
+use std::cmp;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::{BufReader, BufRead, BufWriter, Write};
@@ -12,7 +13,7 @@ const KING: i32 = 5;
 const WHITE: i32 = 0;
 const BLACK: i32 = 6;
 
-fn input_number(piece: i32, white: bool, rank: i32, file: i32) -> i16 {
+pub fn input_number(piece: i32, white: bool, rank: i32, file: i32) -> i16 {
     let piece_num = if white { piece } else { 6 + piece };
     let idx = rank * 8 + file;
     let num = (piece_num * 64 + idx) as i16;
@@ -24,7 +25,8 @@ fn input_number(piece: i32, white: bool, rank: i32, file: i32) -> i16 {
 
 #[derive(Clone)]
 pub struct Data {
-    pub input: Vec<i16>,
+    pub input: [i16; 33],
+    pub len: u8,
     pub score: i16,
     pub outcome: i8
 }
@@ -109,25 +111,43 @@ fn make_sample(line: String) -> Data {
     let fen_end_idx = line.find(";").unwrap();
     let fen = line.as_str()[..fen_end_idx].to_string();
     let inputs = fen_to_features(fen);
+    let mut input = [0; 33];
+    let mut white = false;
+    for i in 0..inputs.len() {
+        input[i] = inputs[i];
+        if inputs[i] == 768 {
+            white = true;
+        }
+    }
 
     // get the score from the engine that searched that position
     let score_start_idx = line.find("score:").unwrap() + 6;
     let score_end_idx = score_start_idx + line.as_str()[score_start_idx..].to_string().find(";").unwrap();
-    let score = line.as_str()[score_start_idx..score_end_idx].parse().unwrap();
+    let mut score: i32 = line.as_str()[score_start_idx..score_end_idx].parse().unwrap();
+    score = cmp::min(cmp::max(score, -(1 << 14)), 1 << 14);
+    if !white {
+        score *= -1;
+    }
 
     // get the outcome of the game that produced that position
     let outcome_start_idx = line.find("outcome:").unwrap() + 8;
     let outcome_str = line.as_str()[outcome_start_idx..].trim();
-    let outcome = match outcome_str {
+
+    let mut outcome = match outcome_str {
         "0.0" => 0,
         "0.5" => 1,
         "1.0" => 2,
         _ => {panic!("bad outcome string!")}
     };
+    if !white {
+        // flip outcome if not white
+        outcome = 2 - outcome;
+    }
 
     return Data {
-        input: inputs,
-        score: score,
+        input: input,
+        len: inputs.len() as u8,
+        score: score as i16,
         outcome: outcome
     };
 }
@@ -141,8 +161,8 @@ pub fn load_dataset(fname: &str) -> std::io::Result<Vec<Data>> {
     loop {
         let num_bytes = r.read_line(&mut buf)?;
         if num_bytes == 0 {break;}
-
-        data.push(make_sample(format!("{}", buf)));
+        let d = make_sample(format!("{}", buf));
+        data.push(d);
         buf.clear();
     }
 

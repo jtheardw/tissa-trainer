@@ -11,8 +11,9 @@ use crate::dataset::*;
 use crate::functions::*;
 use crate::network::*;
 
-const NUM_THREADS: usize = 4;
-const BATCH_SIZE: usize = 16384;
+const NUM_THREADS: usize = 44;
+// const BATCH_SIZE: usize = 16384;
+const BATCH_SIZE: usize = 262144;
 
 pub fn get_time_millis() -> u128 {
     match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
@@ -39,7 +40,7 @@ fn cost_thread_handler(mut net: Network, batch: Vec<Data>, chan: Sender<f32>, ne
     for d in 0..batch.len() {
         let data = &batch[d];
 
-        let predicted = net.predict(&data.input);
+        let predicted = net.predict(&data.input, data.len);
         let cost = validation_cost(predicted, sigmoid(data.score as f32), data.outcome as f32 / 2.0);
 
         local_cost += cost;
@@ -53,7 +54,7 @@ fn epoch_thread_handler(mut net: Network, batch: Vec<Data>, chan: Sender<f32>, n
     for d in 0..batch.len() {
         let data = &batch[d];
 
-        local_cost += net.train(&data.input, sigmoid(data.score as f32), data.outcome as f32 / 2.0);
+        local_cost += net.train(&data.input, data.len, sigmoid(data.score as f32), data.outcome as f32 / 2.0);
     }
     chan.send(local_cost).unwrap();
     net_chan.send(net.copy()).unwrap();
@@ -68,7 +69,7 @@ impl Trainer {
     }
 
     pub fn new(network: Network, dataset: Vec<Data>, epochs: i32) -> Trainer {
-        let validation_size = cmp::min(20 * dataset.len() / 100, 5000000) as usize;
+        let validation_size = cmp::min(20 * dataset.len() / 100, 20000000) as usize;
         let validation_set = dataset[..validation_size].to_vec();
         let training_set = dataset[validation_size..].to_vec();
 
@@ -220,6 +221,7 @@ impl Trainer {
             println!("\nFinished Epoch {} at {}, approx. elapsed time {}s", epoch + 1, finish_time / 1000, (finish_time - start_time) / 1000);
             println!("Storing this Epoch {} network", epoch + 1);
             self.nets[0].save(&format!("nets/epoch-{}.nnue", epoch+1).as_str());
+            self.nets[0].save_image(&format!("nets/epoch-{:03}", epoch+1).as_str());
             println!("Store this Epoch {} network", epoch + 1);
 
             let average_cost = total_cost / self.training_set.len() as f32;

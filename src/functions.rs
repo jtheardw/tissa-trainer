@@ -1,4 +1,5 @@
-const SIGMOID_SCALE: f64 = 3.5 / 512.0;
+// const SIGMOID_SCALE: f64 = 3.5 / 1024.0;
+const SIGMOID_SCALE: f64 = 2.6 / 512.0;
 
 pub fn sigmoid(x: f32) -> f32 {
     // Classic s-curve function
