@@ -11,9 +11,9 @@ use crate::dataset::*;
 use crate::functions::*;
 use crate::network::*;
 
-const NUM_THREADS: usize = 44;
-// const BATCH_SIZE: usize = 16384;
-const BATCH_SIZE: usize = 262144;
+const NUM_THREADS: usize = 4;
+const BATCH_SIZE: usize = 16384;
+// const BATCH_SIZE: usize = 262144;
 
 pub fn get_time_millis() -> u128 {
     match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
@@ -40,7 +40,7 @@ fn cost_thread_handler(mut net: Network, batch: Vec<Data>, chan: Sender<f32>, ne
     for d in 0..batch.len() {
         let data = &batch[d];
 
-        let predicted = net.predict(&data.input, data.len);
+        let predicted = net.predict(&data.piece_input, data.len, data.wk_loc, data.bk_loc);
         let cost = validation_cost(predicted, sigmoid(data.score as f32), data.outcome as f32 / 2.0);
 
         local_cost += cost;
@@ -54,7 +54,7 @@ fn epoch_thread_handler(mut net: Network, batch: Vec<Data>, chan: Sender<f32>, n
     for d in 0..batch.len() {
         let data = &batch[d];
 
-        local_cost += net.train(&data.input, data.len, sigmoid(data.score as f32), data.outcome as f32 / 2.0);
+        local_cost += net.train(&data.piece_input, data.len, data.wk_loc, data.bk_loc, sigmoid(data.score as f32), data.outcome as f32 / 2.0);
     }
     chan.send(local_cost).unwrap();
     net_chan.send(net.copy()).unwrap();

@@ -23,9 +23,25 @@ pub fn input_number(piece: i32, white: bool, rank: i32, file: i32) -> i16 {
     return num;
 }
 
+pub fn get_idx(rank: i32, file: i32) -> i16 {
+    (rank * 8 + file) as i16
+}
+
+pub fn region(idx : i16) -> i16
+{
+  if idx >= 24 { return 3; }
+  const MAP : usize = 193491139974165;
+  return ((MAP >> (idx*2)) & 3) as i16;
+}
+
 #[derive(Clone)]
 pub struct Data {
-    pub input: [i16; 33],
+    pub piece_input: [i16; 33],
+    pub wk_loc: i16,
+    pub bk_loc: i16,
+    // pub w_input: [i16; 32],
+    // pub b_input: [i16; 32],
+    // pub flip: bool,
     pub len: u8,
     pub score: i16,
     pub outcome: i8
@@ -50,7 +66,7 @@ pub fn count_samples(fname: &str) -> std::io::Result<i64> {
     return Ok(total);
 }
 
-fn fen_to_features(fen: String) -> Vec<i16> {
+fn fen_to_features(fen: String) -> (Vec<i16>, i16, i16) {
     let mut inputs: Vec<i16> = Vec::new();
     let mut rank: i32 = 7;
     let mut file: i32 = 0;
@@ -61,11 +77,14 @@ fn fen_to_features(fen: String) -> Vec<i16> {
         None => panic!("bad FEN string")
     };
 
+    let mut wk_loc = -1;
+    let mut bk_loc = -1;
+
     for c in position.as_bytes().iter() {
         let c = *c;
         match c {
-            b'K' => {inputs.push(input_number(KING, true, rank, file)); file += 1;},
-            b'k' => {inputs.push(input_number(KING, false, rank, file)); file += 1;},
+            b'K' => {inputs.push(input_number(KING, true, rank, file)); wk_loc = region(get_idx(rank, file)); file += 1;},
+            b'k' => {inputs.push(input_number(KING, false, rank, file)); bk_loc = region(get_idx(rank, file) ^ 56); file += 1; },
 
             b'Q' => {inputs.push(input_number(QUEEN, true, rank, file)); file += 1;},
             b'q' => {inputs.push(input_number(QUEEN, false, rank, file)); file += 1;},
@@ -96,11 +115,11 @@ fn fen_to_features(fen: String) -> Vec<i16> {
     }
 
     match fen_split.next() {
-        Some(s) => {if s == "w" {inputs.push(768);}},
+        Some(s) => {if s == "w" {inputs.push(-1);}},
         None => panic!("bad FEN string")
     }
 
-    return inputs;
+    return (inputs, wk_loc, bk_loc);
 }
 
 fn make_sample(line: String) -> Data {
@@ -110,12 +129,12 @@ fn make_sample(line: String) -> Data {
     // get inputs from the fen
     let fen_end_idx = line.find(";").unwrap();
     let fen = line.as_str()[..fen_end_idx].to_string();
-    let inputs = fen_to_features(fen);
+    let (piece_inputs, wk_loc, bk_loc) = fen_to_features(fen);
     let mut input = [0; 33];
     let mut white = false;
-    for i in 0..inputs.len() {
-        input[i] = inputs[i];
-        if inputs[i] == 768 {
+    for i in 0..piece_inputs.len() {
+        input[i] = piece_inputs[i];
+        if piece_inputs[i] == -1 {
             white = true;
         }
     }
@@ -145,8 +164,10 @@ fn make_sample(line: String) -> Data {
     }
 
     return Data {
-        input: input,
-        len: inputs.len() as u8,
+        piece_input: input,
+        wk_loc: wk_loc as i16,
+        bk_loc: bk_loc as i16,
+        len: piece_inputs.len() as u8,
         score: score as i16,
         outcome: outcome
     };

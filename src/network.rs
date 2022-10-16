@@ -164,7 +164,7 @@ impl Network {
     pub fn save_image(&self, file: &str) -> std::io::Result<()> {
         let ss = 8; // supersampling
         let border = [0, 0, 0];
-        let width  = (12*8)*ss + 11;
+        let width  = (12*8*4)*ss + 11 * 4 + 3 * ss * 4;
         let neurons = 256;
         let height = 8*neurons*ss + 127;
         let mut w = BufWriter::new(File::create(format!("{}.ppm", file))?);
@@ -177,26 +177,35 @@ impl Network {
             if n != 0 { for _ in 0..width { w.write(&border)?; } }
             let mut upper = 0.0;
             let mut lower = 0.0;
-            for i in 0..768 {
-                upper = self.weights[0].get(n, i).max(upper);
-                lower = self.weights[0].get(n, i).min(lower);
-            }
-            let scale = upper.max(-lower);
             for rank in (0..8).rev() {
                 for _ in 0..ss {
-                    for side in [true, false] {
-                        for piece in (0..6).rev() {
-                            if piece != 5 || !side { w.write(&border)?; }
-                            for file in 0..8 {
-                                // let x : usize = piece*64 + rank*8 + file;
-                                let inp = input_number(piece, side, rank, file);
-                                let normed = ((self.weights[0].get(n, inp as usize) / scale) + 1.0) / 2.0;
-                                // let normed = ((self.w1[n][x] / scale) + 1.0) / 2.0;
-                                debug_assert!(1.0 >= normed && normed >= 0.0, "out of range");
-                                let r = (normed * 255.0).round() as u8;
-                                let g = (normed * 255.0).round() as u8;
-                                let b = (32.0 + normed * 191.0).round() as u8;
-                                for _ in 0..ss { w.write(&[r, g, b])?; }
+                    let mut wid = 0;
+                    for kr in 0..4 {
+                        if kr != 0 {
+                            for _ in 0..(ss*4) { wid += 1; w.write(&border)?; }
+                        }
+
+                        let kr_offset = kr * 768;
+                        for i in 0..768 {
+                            upper = self.weights[0].get(n, kr_offset + i).max(upper);
+                            lower = self.weights[0].get(n, kr_offset + i).min(lower);
+                        }
+                        let scale = upper.max(-lower);
+
+                        for side in [true, false] {
+                            for piece in (0..6).rev() {
+                                if piece != 5 || !side { wid += 1; w.write(&border)?; }
+                                for file in 0..8 {
+                                    // let x : usize = piece*64 + rank*8 + file;
+                                    let inp = input_number(piece, side, rank, file) + kr_offset as i16;
+                                    let normed = ((self.weights[0].get(n, inp as usize) / scale) + 1.0) / 2.0;
+                                    // let normed = ((self.w1[n][x] / scale) + 1.0) / 2.0;
+                                    debug_assert!(1.0 >= normed && normed >= 0.0, "out of range");
+                                    let r = (normed * 255.0).round() as u8;
+                                    let g = (normed * 255.0).round() as u8;
+                                    let b = (32.0 + normed * 191.0).round() as u8;
+                                    for _ in 0..ss { wid += 1; w.write(&[r, g, b])?; }
+                                }
                             }
                         }
                     }
@@ -300,7 +309,7 @@ impl Network {
         return Ok(network);
     }
 
-    pub fn predict(&mut self, input: &[i16; 33], len: u8) -> f32 {
+    pub fn predict(&mut self, input: &[i16; 33], len: u8, wk_loc: i16, bk_loc: i16) -> f32 {
         // hidden layers are done using relu's.  The output
         // layer will be a sigmoid
         self.activations[0].clear();
@@ -315,15 +324,20 @@ impl Network {
         // can be non-zero at any given time. we don't have to do the whole
         // song-and-dance of the full matrix multiplication.
         let output_size = output.size();
-        self.flipped = !(input[(len - 1) as usize] == 768);
+        self.flipped = !(input[(len - 1) as usize] == -1);
 
         for i in 0..len {
             // the "inputs" here are actually the indexes of the features that are non-zero
-            if input[i as usize] == 768 {
+            if input[i as usize] == -1 {
                 continue;
             }
-            let inp = input[i as usize];
-            let flipped_inp = flip_input(inp);
+            let inp = input[i as usize] + 768 * wk_loc;
+            let flipped_inp = flip_input(input[i as usize]) + 768 * bk_loc;
+            // if !self.flipped && (input[i as usize] / 64) == 5 {
+            //     println!("king idx {} kr {}", inp % 64, wk_loc);
+            // } else if self.flipped && (input[i as usize] / 64) == 11 {
+            //     println!("flipped king idx {} kr {}", flipped_inp % 64, bk_loc);
+            // }
             let neurons = output_size / 2;
             for j in 0..output_size {
                 let out_idx = j % (output_size / 2);
@@ -393,14 +407,14 @@ impl Network {
         }
     }
 
-    pub fn update_gradients(&mut self, input: &[i16; 33], len: u8) {
+    pub fn update_gradients(&mut self, input: &[i16; 33], len: u8, wk_loc: i16, bk_loc: i16) {
 
         // the first layer is handled sparesly, as described in "predict"
         for i in 0..len {
-            let inp = input[i as usize];
+            if input[i as usize] == -1 { continue; }
+            let inp = input[i as usize] + 768 * wk_loc;
             let output_size = self.errors[0].size();
-            if inp == 768 { continue; }
-            let flipped_inp = flip_input(inp);
+            let flipped_inp = flip_input(input[i as usize]) + 768 * bk_loc;
             for j in 0..output_size {
                 let out_idx = j % (output_size / 2);
                 let weight_to_get = if self.flipped ^ (j >= output_size / 2) {
@@ -408,7 +422,6 @@ impl Network {
                 } else {
                     inp as usize
                 };
-                // println!("flipped {} inp {} neuron {} weight_j {} weight_i {}", self.flipped, input[i as usize], j, weight_to_get.0, weight_to_get.1);
                 self.weight_gradients[0].update(out_idx, weight_to_get, self.errors[0].data[j]);
             }
         }
@@ -429,10 +442,10 @@ impl Network {
         }
     }
 
-    pub fn train(&mut self, input: &[i16; 33], len: u8, eval_target: f32, result_target: f32) -> f32 {
+    pub fn train(&mut self, input: &[i16; 33], len: u8, wk_loc: i16, bk_loc: i16, eval_target: f32, result_target: f32) -> f32 {
 
         // First we attempt to get a result from the current net
-        let last_output = self.predict(input, len);
+        let last_output = self.predict(input, len, wk_loc, bk_loc);
 
         // Then we need to figure out how effective we were
         let output_gradient = cost_gradient(last_output, eval_target, result_target) * sigmoid_to_sigmoid_prime(last_output);
@@ -441,7 +454,7 @@ impl Network {
         self.find_errors(output_gradient);
 
         // determine updates
-        self.update_gradients(input, len);
+        self.update_gradients(input, len, wk_loc, bk_loc);
 
         let vc = validation_cost(last_output, eval_target, result_target);
         return vc;
