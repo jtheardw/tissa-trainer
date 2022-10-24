@@ -331,8 +331,10 @@ impl Network {
             if input[i as usize] == -1 {
                 continue;
             }
-            let inp = input[i as usize] + 768 * wk_loc;
-            let flipped_inp = flip_input(input[i as usize]) + 768 * bk_loc;
+            let inp_num = input[i as usize];
+            let flipped_inp_num = flip_input(inp_num);
+            let inp = inp_num + 768 * wk_loc;
+            let flipped_inp = flipped_inp_num + 768 * bk_loc;
             // if !self.flipped && (input[i as usize] / 64) == 5 {
             //     println!("king idx {} kr {}", inp % 64, wk_loc);
             // } else if self.flipped && (input[i as usize] / 64) == 11 {
@@ -343,9 +345,17 @@ impl Network {
                 let out_idx = j % (output_size / 2);
                 let weight_to_get = if j >= output_size / 2 {
                     // we need to "flip"
-                    flipped_inp as usize
+                    if j >= (3 * output_size / 4) {
+                        flipped_inp_number as usize
+                    } else {
+                        flipped_inp as usize
+                    };
                 } else {
-                    inp as usize
+                    if j >= output_size / 4 {
+                        inp_num as usize
+                    } else {
+                        inp as usize
+                    }
                 };
                 // println!("inp {} neuron {} weight_j {} weight_i {}", input[i as usize], j, weight_to_get.0, weight_to_get.1);
                 if !self.flipped {
@@ -412,15 +422,27 @@ impl Network {
         // the first layer is handled sparesly, as described in "predict"
         for i in 0..len {
             if input[i as usize] == -1 { continue; }
-            let inp = input[i as usize] + 768 * wk_loc;
+            let inp_num = input[i as usize];
+            let flipped_inp_num = flip_input(inp_num);
+            let inp = imp_num + 768 * wk_loc;
+            let flipped_inp = flip_input(inp_num) + 768 * bk_loc;
+
             let output_size = self.errors[0].size();
-            let flipped_inp = flip_input(input[i as usize]) + 768 * bk_loc;
             for j in 0..output_size {
                 let out_idx = j % (output_size / 2);
                 let weight_to_get = if self.flipped ^ (j >= output_size / 2) {
-                    flipped_inp as usize
+                    // we need to "flip"
+                    if j >= (3 * output_size / 4) {
+                        flipped_inp_number as usize
+                    } else {
+                        flipped_inp as usize
+                    };
                 } else {
-                    inp as usize
+                    if j >= output_size / 4 {
+                        inp_num as usize
+                    } else {
+                        inp as usize
+                    }
                 };
                 self.weight_gradients[0].update(out_idx, weight_to_get, self.errors[0].data[j]);
             }
