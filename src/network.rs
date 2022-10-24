@@ -346,10 +346,10 @@ impl Network {
                 let weight_to_get = if j >= output_size / 2 {
                     // we need to "flip"
                     if j >= (3 * output_size / 4) {
-                        flipped_inp_number as usize
+                        flipped_inp_num as usize
                     } else {
                         flipped_inp as usize
-                    };
+                    }
                 } else {
                     if j >= output_size / 4 {
                         inp_num as usize
@@ -424,8 +424,8 @@ impl Network {
             if input[i as usize] == -1 { continue; }
             let inp_num = input[i as usize];
             let flipped_inp_num = flip_input(inp_num);
-            let inp = imp_num + 768 * wk_loc;
-            let flipped_inp = flip_input(inp_num) + 768 * bk_loc;
+            let inp = inp_num + 768 * wk_loc;
+            let flipped_inp = flipped_inp_num + 768 * bk_loc;
 
             let output_size = self.errors[0].size();
             for j in 0..output_size {
@@ -433,10 +433,10 @@ impl Network {
                 let weight_to_get = if self.flipped ^ (j >= output_size / 2) {
                     // we need to "flip"
                     if j >= (3 * output_size / 4) {
-                        flipped_inp_number as usize
+                        flipped_inp_num as usize
                     } else {
                         flipped_inp as usize
-                    };
+                    }
                 } else {
                     if j >= output_size / 4 {
                         inp_num as usize
