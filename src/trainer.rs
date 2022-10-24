@@ -11,9 +11,9 @@ use crate::dataset::*;
 use crate::functions::*;
 use crate::network::*;
 
-const NUM_THREADS: usize = 4;
-const BATCH_SIZE: usize = 16384;
-// const BATCH_SIZE: usize = 262144;
+const NUM_THREADS: usize = 44;
+// const BATCH_SIZE: usize = 16384;
+const BATCH_SIZE: usize = 262144;
 
 pub fn get_time_millis() -> u128 {
     match SystemTime::now().duration_since(SystemTime::UNIX_EPOCH) {
