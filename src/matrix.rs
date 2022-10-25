@@ -51,7 +51,7 @@ impl Matrix {
 }
 
 fn random_array(len: usize, range_factor: f32) -> Vec<f32> {
-    let max = 2.0 / ((range_factor / 2) as f64).sqrt();
+    let max = 2.0 / ((range_factor / 2.0) as f64).sqrt();
     let mut rng = rand::thread_rng();
 
     let mut data: Vec<f32> = vec![0.0; len];
