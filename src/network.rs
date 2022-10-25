@@ -439,7 +439,8 @@ impl Network {
                         flipped_inp as usize
                     }
                 } else {
-                    if j >= output_size / 4 {
+                    if (self.flipped && (j >= (3 * output_size / 4)))
+                    || (!self.flipped && (j >= output_size / 4)) {
                         inp_num as usize
                     } else {
                         inp as usize
