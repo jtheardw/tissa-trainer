@@ -432,7 +432,8 @@ impl Network {
                 let out_idx = j % (output_size / 2);
                 let weight_to_get = if self.flipped ^ (j >= output_size / 2) {
                     // we need to "flip"
-                    if j >= (3 * output_size / 4) {
+                    if (!self.flipped && (j >= (3 * output_size / 4)))
+                    || (self.flipped && (j >= output_size / 4)) {
                         flipped_inp_num as usize
                     } else {
                         flipped_inp as usize
