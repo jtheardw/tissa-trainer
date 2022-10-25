@@ -55,9 +55,11 @@ fn random_array(len: usize, range_factor: f32) -> Vec<f32> {
     let mut rng = rand::thread_rng();
 
     let mut data: Vec<f32> = vec![0.0; len];
-    let mut dist = Uniform::from(-max..max);
+    // let mut dist = Uniform::from(-max..max);
+    let mut dist = Uniform::from((max/5.0)..max);
     for i in 0..len {
-        data[i] = dist.sample(&mut rng) as f32;
+        let sign = if (Uniform::from(0.0..1.0).sample(&mut rng) as f32 >= 0.5) {1.0} else {-1.0};
+        data[i] = (dist.sample(&mut rng) as f32) * sign;
     }
 
     return data;
